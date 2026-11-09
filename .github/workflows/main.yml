@@ -1,0 +1,12 @@
+name: Veggie Shorts Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Test GitHub Actions
+        run: echo "Veggie Shorts Bot is working!"
