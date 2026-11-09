@@ -2,6 +2,7 @@ import os
 import json
 import random
 import urllib.request
+import urllib.error
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
@@ -25,10 +26,13 @@ STORY_TYPES = [
 
 
 def create_story():
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not set.")
+
     vegetable = random.choice(VEGETABLES)
     story_type = random.choice(STORY_TYPES)
 
-    prompt = f"""
+    prompt = """
 Create ONE original Hindi children's animated short story.
 
 Main character: {vegetable}
@@ -51,20 +55,20 @@ Requirements:
 
 Return ONLY valid JSON in this format:
 
-{
+{{
   "title": "Hindi title",
   "characters": ["character names"],
   "story": "complete Hindi narration",
   "lesson": "small lesson",
   "scenes": [
-    {
+    {{
       "scene": 1,
       "description": "what happens visually",
       "dialogue": "spoken Hindi dialogue"
-    }
+    }}
   ]
-}
-"""
+}}
+""".format(vegetable=vegetable, story_type=story_type)
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -89,10 +93,26 @@ Return ONLY valid JSON in this format:
         method="POST"
     )
 
-    with urllib.request.urlopen(request) as response:
-        result = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        error_body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"Gemini API request failed with HTTP {error.code}: {error_body}"
+        ) from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(
+            f"Gemini API request failed: {error}"
+        ) from error
 
-    text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+    try:
+        text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (KeyError, IndexError, TypeError) as error:
+        raise RuntimeError(
+            "Gemini returned an unexpected response: "
+            + json.dumps(result, ensure_ascii=False)
+        ) from error
 
     if text.startswith("```json"):
         text = text[7:]
@@ -100,7 +120,12 @@ Return ONLY valid JSON in this format:
     if text.endswith("```"):
         text = text[:-3]
 
-    return json.loads(text.strip())
+    try:
+        return json.loads(text.strip())
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            f"Gemini returned invalid JSON: {text}"
+        ) from error
 
 
 if __name__ == "__main__":
