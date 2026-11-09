@@ -5,7 +5,11 @@ import urllib.request
 import urllib.error
 import time
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+# Get Gemini API key from GitHub Secrets.
+# strip() removes accidental spaces or newlines.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+
 
 VEGETABLES = [
     "Aalu",
@@ -13,6 +17,7 @@ VEGETABLES = [
     "Gajar",
     "Baingan"
 ]
+
 
 STORY_TYPES = [
     "funny adventure",
@@ -27,11 +32,23 @@ STORY_TYPES = [
 
 
 def create_story():
+
+    # Check API key exists.
     if not GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is not set.")
+        raise RuntimeError(
+            "GEMINI_API_KEY is not set."
+        )
+
+    # Check for hidden whitespace inside the key.
+    if any(char.isspace() for char in GEMINI_API_KEY):
+        raise RuntimeError(
+            "GEMINI_API_KEY contains whitespace. "
+            "Check the GitHub Secret and paste only the API key."
+        )
 
     vegetable = random.choice(VEGETABLES)
     story_type = random.choice(STORY_TYPES)
+
 
     prompt = f"""
 Create ONE original Hindi children's animated short story.
@@ -56,6 +73,7 @@ Requirements:
 
 Return ONLY valid JSON.
 Do not use Markdown code fences.
+
 Use exactly this structure:
 
 {{
@@ -73,16 +91,22 @@ Use exactly this structure:
 }}
 """
 
+
+    # Gemini Developer API endpoint.
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         "gemini-3.8-flash:generateContent"
     )
 
+
+    # Request body.
     data = {
         "contents": [
             {
                 "parts": [
-                    {"text": prompt}
+                    {
+                        "text": prompt
+                    }
                 ]
             }
         ],
@@ -92,6 +116,8 @@ Use exactly this structure:
         }
     }
 
+
+    # Create HTTP request.
     request = urllib.request.Request(
         url,
         data=json.dumps(data).encode("utf-8"),
@@ -102,29 +128,62 @@ Use exactly this structure:
         method="POST"
     )
 
+
+    result = None
     last_error = None
 
+
+    # Try the request up to 3 times.
+    # This helps with temporary 429/5xx errors.
     for attempt in range(3):
+
         try:
-            with urllib.request.urlopen(request, timeout=90) as response:
-                result = json.loads(response.read().decode("utf-8"))
+
+            with urllib.request.urlopen(
+                request,
+                timeout=90
+            ) as response:
+
+                response_text = response.read().decode("utf-8")
+
+                result = json.loads(response_text)
+
             break
 
+
         except urllib.error.HTTPError as error:
-            error_body = error.read().decode("utf-8", errors="replace")
-            last_error = (
-                f"Gemini API request failed with HTTP {error.code}: "
-                f"{error_body}"
+
+            error_body = error.read().decode(
+                "utf-8",
+                errors="replace"
             )
 
-            if error.code in (429, 500, 502, 503, 504) and attempt < 2:
-                time.sleep(2 ** attempt)
-                continue
+            last_error = (
+                f"Gemini API request failed with HTTP "
+                f"{error.code}: {error_body}"
+            )
+
+            # Retry temporary errors.
+            if error.code in (
+                429,
+                500,
+                502,
+                503,
+                504
+            ):
+
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
 
             raise RuntimeError(last_error) from error
 
+
         except urllib.error.URLError as error:
-            last_error = f"Gemini API request failed: {error}"
+
+            last_error = (
+                f"Gemini API request failed: {error}"
+            )
 
             if attempt < 2:
                 time.sleep(2 ** attempt)
@@ -132,32 +191,87 @@ Use exactly this structure:
 
             raise RuntimeError(last_error) from error
 
+
+        except TimeoutError as error:
+
+            last_error = (
+                "Gemini API request timed out."
+            )
+
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+
+            raise RuntimeError(last_error) from error
+
+
+    # Make sure we actually received a response.
+    if result is None:
+
+        raise RuntimeError(
+            last_error or
+            "Gemini request failed without a response."
+        )
+
+
+    # Extract Gemini's generated text.
     try:
-        text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except (KeyError, IndexError, TypeError) as error:
+
+        text = (
+            result["candidates"][0]
+            ["content"]["parts"][0]
+            ["text"]
+            .strip()
+        )
+
+    except (
+        KeyError,
+        IndexError,
+        TypeError
+    ) as error:
+
         raise RuntimeError(
             "Gemini returned an unexpected response: "
-            + json.dumps(result, ensure_ascii=False)
+            + json.dumps(
+                result,
+                ensure_ascii=False
+            )
         ) from error
 
+
+    # Remove Markdown JSON fences if Gemini adds them.
     if text.startswith("```json"):
+
         text = text[7:]
 
-    if text.startswith("```"):
+
+    elif text.startswith("```"):
+
         text = text[3:]
 
+
     if text.endswith("```"):
+
         text = text[:-3]
+
 
     text = text.strip()
 
+
+    # Convert Gemini JSON text into a Python dictionary.
     try:
+
         story = json.loads(text)
+
     except json.JSONDecodeError as error:
+
         raise RuntimeError(
-            f"Gemini returned invalid JSON: {text}"
+            "Gemini returned invalid JSON: "
+            + text
         ) from error
 
+
+    # Required fields.
     required_keys = [
         "title",
         "characters",
@@ -166,23 +280,52 @@ Use exactly this structure:
         "scenes"
     ]
 
+
+    # Check missing fields.
     missing_keys = [
-        key for key in required_keys
+        key
+        for key in required_keys
         if key not in story
     ]
 
+
     if missing_keys:
+
         raise RuntimeError(
             "Gemini JSON is missing required fields: "
             + ", ".join(missing_keys)
         )
 
-    if not isinstance(story["scenes"], list) or not story["scenes"]:
-        raise RuntimeError("Gemini returned no scenes.")
+
+    # Check scenes.
+    if not isinstance(
+        story["scenes"],
+        list
+    ):
+
+        raise RuntimeError(
+            "Gemini returned scenes in an invalid format."
+        )
+
+
+    if not story["scenes"]:
+
+        raise RuntimeError(
+            "Gemini returned no scenes."
+        )
+
 
     return story
 
 
 if __name__ == "__main__":
+
     story = create_story()
-    print(json.dumps(story, ensure_ascii=False, indent=2))
+
+    print(
+        json.dumps(
+            story,
+            ensure_ascii=False,
+            indent=2
+        )
+    )
