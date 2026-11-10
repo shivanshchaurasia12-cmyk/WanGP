@@ -3,17 +3,30 @@ import os, json, time, requests
 API_KEY = os.environ["GEMINI_API_KEY"].strip()
 MODELS = ["gemini-3.8-flash", "gemini-2.5-flash-lite"]
 BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+SPEAKERS = ["Narrator", "Aalu", "Baingan", "Tamatar", "Gajar"]
 
 PROMPT = """Write a short, funny, kid-friendly Hindi story (about 45 seconds when read aloud).
-Characters: Aalu, Tamatar, Gajar and Baingan (talking vegetables).
+Characters: Aalu (potato, silly and cheerful), Baingan (eggplant, calm and wise),
+Tamatar (tomato, hot-tempered and fast talker), Gajar (carrot, shy and sweet).
+The story is mostly DIALOGUE between the vegetables, with a short Narrator when needed.
 Return ONLY JSON in this format:
 {
   "title": "Hindi title",
   "scenes": [
-    {"hindi_text": "1-2 simple Hindi sentences", "visual_prompt": "English description of the scene, cartoon vegetables, bright colors"}
+    {
+      "lines": [
+        {"speaker": "Narrator", "text": "one short Hindi sentence"},
+        {"speaker": "Aalu", "text": "one short Hindi sentence"}
+      ],
+      "visual_prompt": "English description of the scene, 3D Pixar style cartoon vegetables, bright colors"
+    }
   ]
 }
-Use exactly 6 scenes. End with a small moral."""
+Rules:
+- Use exactly 6 scenes.
+- Each scene has 1 to 3 lines. Each line is one short, simple Hindi sentence in Devanagari.
+- The speaker must be exactly one of: Narrator, Aalu, Baingan, Tamatar, Gajar.
+- End with a small moral said by the Narrator."""
 
 
 def clean_json(text):
@@ -32,8 +45,16 @@ def is_valid(story):
     if not isinstance(scenes, list) or len(scenes) != 6:
         return False
     for s in scenes:
-        if not isinstance(s, dict) or not s.get("hindi_text") or not s.get("visual_prompt"):
+        if not isinstance(s, dict) or not s.get("visual_prompt"):
             return False
+        lines = s.get("lines")
+        if not isinstance(lines, list) or not 1 <= len(lines) <= 3:
+            return False
+        for ln in lines:
+            if not isinstance(ln, dict) or not ln.get("text"):
+                return False
+            if ln.get("speaker") not in SPEAKERS:
+                return False
     return True
 
 
