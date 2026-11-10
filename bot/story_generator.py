@@ -1,7 +1,14 @@
 import os, json, time, requests
 
 API_KEY = os.environ["GEMINI_API_KEY"].strip()
-MODELS = ["gemini-3.8-flash", "gemini-2.5-flash-lite"]
+MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+]
 BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 SPEAKERS = ["Narrator", "Aalu", "Baingan", "Tamatar", "Gajar"]
 
@@ -69,42 +76,47 @@ def generate_story():
         "generationConfig": {"responseMimeType": "application/json"},
     }
     headers = {"x-goog-api-key": API_KEY, "Content-Type": "application/json"}
+    models = list(MODELS)
 
-    for model in MODELS:
-        url = f"{BASE}/{model}:generateContent"
-        print(f"Using model: {model}")
-        for attempt in range(1, 6):
-            wait = attempt * 20
+    for round_no in range(1, 5):
+        for model in list(models):
+            url = f"{BASE}/{model}:generateContent"
+            print(f"Round {round_no} | model: {model}")
             try:
                 r = requests.post(url, json=body, headers=headers, timeout=120)
             except requests.exceptions.RequestException as e:
-                print(f"Network error: {e}. Retry {attempt}/5 in {wait}s...")
-                time.sleep(wait)
-                continue
-
-            if r.status_code in (429, 500, 503):
-                print(f"Gemini busy ({r.status_code}). Retry {attempt}/5 in {wait}s...")
-                time.sleep(wait)
+                print(f"  Network error: {e}")
                 continue
 
             if r.status_code == 404:
-                print(f"Model {model} not available. Trying next model...")
-                break
+                print("  Model not available. Removing it.")
+                models.remove(model)
+                continue
+
+            if r.status_code in (429, 500, 503):
+                print(f"  Busy ({r.status_code}). Next model...")
+                continue
 
             if r.status_code != 200:
-                raise RuntimeError(f"Gemini error {r.status_code}: {r.text}")
+                print(f"  Error {r.status_code}: {r.text[:300]}")
+                continue
 
             try:
                 story = clean_json(get_text(r.json()))
             except Exception as e:
-                print(f"Bad reply ({e}). Retry {attempt}/5...")
-                time.sleep(5)
+                print(f"  Bad reply ({e}). Next model...")
                 continue
 
             if is_valid(story):
+                print("  Story OK.")
                 return story
-            print(f"Story format wrong. Retry {attempt}/5...")
-            time.sleep(5)
+            print("  Story format wrong. Next model...")
+
+        if not models:
+            break
+        wait = round_no * 30
+        print(f"All models busy. Waiting {wait}s, then trying again...")
+        time.sleep(wait)
 
     raise RuntimeError("Could not get a valid story. Try again later.")
 
