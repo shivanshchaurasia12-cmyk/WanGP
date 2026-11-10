@@ -11,6 +11,7 @@ MODELS = [
 ]
 BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 SPEAKERS = ["Narrator", "Aalu", "Baingan", "Tamatar", "Gajar"]
+EMOTIONS = ["calm", "happy", "excited", "angry", "shy", "sad", "surprised", "scared", "proud", "funny"]
 
 PROMPT = """Write a short, funny, kid-friendly Hindi story (about 45 seconds when read aloud).
 Characters: Aalu (potato, silly and cheerful), Baingan (eggplant, calm and wise),
@@ -22,8 +23,8 @@ Return ONLY JSON in this format:
   "scenes": [
     {
       "lines": [
-        {"speaker": "Narrator", "text": "one short Hindi sentence"},
-        {"speaker": "Aalu", "text": "one short Hindi sentence"}
+        {"speaker": "Narrator", "emotion": "calm", "text": "one short Hindi sentence"},
+        {"speaker": "Aalu", "emotion": "excited", "text": "one short Hindi sentence"}
       ],
       "visual_prompt": "English description of the scene, 3D Pixar style cartoon vegetables, bright colors"
     }
@@ -33,6 +34,9 @@ Rules:
 - Use exactly 6 scenes.
 - Each scene has 1 to 3 lines. Each line is one short, simple Hindi sentence in Devanagari.
 - The speaker must be exactly one of: Narrator, Aalu, Baingan, Tamatar, Gajar.
+- The emotion must be exactly one of: calm, happy, excited, angry, shy, sad, surprised, scared, proud, funny.
+- Choose the emotion that fits what the character says. Change emotions often so the story feels alive.
+- Use commas, "!" and "?" naturally so the sentences sound like real speech.
 - End with a small moral said by the Narrator."""
 
 
@@ -62,6 +66,8 @@ def is_valid(story):
                 return False
             if ln.get("speaker") not in SPEAKERS:
                 return False
+            if ln.get("emotion") not in EMOTIONS:
+                ln["emotion"] = "calm"
     return True
 
 
